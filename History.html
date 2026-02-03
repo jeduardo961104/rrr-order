@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <base target="_top">
+  <?!= include('styles'); ?>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">RRR</div>
+        <div style="min-width:0">
+          <h1>History</h1>
+          <p>Drafts + Orders</p>
+        </div>
+      </div>
+
+      <script>
+        // ✅ baseUrl debe existir (viene del template)
+        window.BASE_URL = "<?!= baseUrl ?>";
+      </script>
+
+      <?!= include('nav'); ?>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2 style="margin:0 0 6px;">Orders (latest)</h2>
+      <p class="hint">Shows work status saved in the orders sheet.</p>
+
+      <div id="status" class="status" style="display:block;">Loading…</div>
+
+      <div style="overflow:auto;margin-top:10px">
+        <table>
+          <thead>
+            <tr>
+              <th>RRR ID</th>
+              <th>Mechanic</th>
+              <th>VIN</th>
+              <th>Status</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody id="ordersBody">
+            <tr><td colspan="5">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2 style="margin:0 0 6px;">Drafts (latest)</h2>
+      <p class="hint">Drafts sent to technicians.</p>
+
+      <div style="overflow:auto;margin-top:10px">
+        <table>
+          <thead>
+            <tr>
+              <th>Draft ID</th>
+              <th>Tech</th>
+              <th>VIN</th>
+              <th>Status</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody id="draftsBody">
+            <tr><td colspan="5">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ✅ Protección: si hay error JS, lo ves en status
+  window.addEventListener("error", (e)=>{
+    const el = document.getElementById("status");
+    if(el) el.textContent = "JS ERROR: " + (e.message || e);
+  });
+
+  function setStatus(msg, ok){
+    const el = document.getElementById("status");
+    if(!el) return;
+    el.style.display = "block";
+    el.className = "status " + (ok ? "ok" : "err");
+    el.textContent = msg;
+  }
+
+  function fmtDate(v){
+    try{
+      const d = new Date(v);
+      if(isNaN(d.getTime())) return "";
+      return d.toLocaleString();
+    } catch(_){ return ""; }
+  }
+
+  function chip(status){
+    const s = String(status||"NEW").toUpperCase();
+    const cls = s==="COMPLETED" ? "chip chipCOMPLETED" : (s==="ONGOING" ? "chip chipONGOING" : "chip chipNEW");
+    return `<span class="${cls}">${s}</span>`;
+  }
+
+  function render(data){
+    const orders = (data && data.orders) ? data.orders : [];
+    const drafts = (data && data.drafts) ? data.drafts : [];
+
+    const ob = document.getElementById("ordersBody");
+    ob.innerHTML = orders.slice(0, 50).map(o=>`
+      <tr>
+        <td>${o.rrrId || ""}</td>
+        <td>${o.mechanic || ""}</td>
+        <td>${o.vin || ""}</td>
+        <td>${chip(o.workStatus)}</td>
+        <td>${fmtDate(o.timestamp)}</td>
+      </tr>
+    `).join("") || `<tr><td colspan="5">No orders found.</td></tr>`;
+
+    const db = document.getElementById("draftsBody");
+    db.innerHTML = drafts.slice(0, 50).map(d=>`
+      <tr>
+        <td>${d.draftId || ""}</td>
+        <td>${d.techName || ""}</td>
+        <td>${d.vin || ""}</td>
+        <td>${String(d.draftStatus||"").toUpperCase()}</td>
+        <td>${fmtDate(d.createdAt)}</td>
+      </tr>
+    `).join("") || `<tr><td colspan="5">No drafts found.</td></tr>`;
+
+    setStatus("Loaded ✅ Orders: " + orders.length + " | Drafts: " + drafts.length, true);
+  }
+
+  function load(){
+    setStatus("Loading…", true);
+    google.script.run
+      .withSuccessHandler(render)
+      .withFailureHandler((e)=> setStatus("Failed: " + (e && e.message ? e.message : e), false))
+      .getDashboardData();
+  }
+
+  window.addEventListener("load", load);
+</script>
+</body>
+</html>

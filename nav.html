@@ -1,0 +1,56 @@
+<!-- nav.html -->
+<script>
+  // ✅ Fallback: si alguna página no seteó BASE_URL, lo calculamos desde la URL actual
+  // Esto evita el error: "BASE_URL not found..."
+  if (!window.BASE_URL) {
+    try {
+      const u = new URL(window.location.href);
+      u.search = ""; // quita ?page=...
+      window.BASE_URL = u.toString();
+    } catch (e) {
+      window.BASE_URL = ""; // último recurso
+    }
+  }
+</script>
+
+<div class="navTabs">
+  <button class="tabBtn" type="button" onclick="goNav('Dashboard')">Dashboard</button>
+  <button class="tabBtn" type="button" onclick="goNav('Dispatcher')">Dispatcher</button>
+  <button class="tabBtn" type="button" onclick="goNav('History')">History</button>
+  <button class="tabBtn" type="button" onclick="goNav('WorkStatus')">WorkStatus</button>
+  
+</div>
+
+<script>
+  function goNav(page){
+    const base = (window.BASE_URL || "").trim();
+
+    if(!base){
+      alert("BASE_URL not found. Reload the page from the /exec link.");
+      return;
+    }
+
+    // Dashboard: sin query
+    if(page === "Dashboard") {
+      window.top.location.href = base;
+      return;
+    }
+
+    window.top.location.href = base + "?page=" + encodeURIComponent(page);
+  }
+</script>
+<script>
+  (function markActiveTab(){
+    try{
+      const p = new URLSearchParams(window.location.search);
+      // Si no hay ?page=, es Dashboard
+      const page = (p.get("page") || "Dashboard").toLowerCase();
+
+      document.querySelectorAll(".tabBtn").forEach(btn=>{
+        const btnPage = String(btn.dataset.page || "").toLowerCase();
+        btn.classList.toggle("active", btnPage === page);
+      });
+    }catch(_){}
+  })();
+</script>
+

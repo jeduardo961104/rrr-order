@@ -1,0 +1,366 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <base target="_top">
+  <?!= include('styles'); ?>
+  <style>
+    .locked{background:rgba(255,255,255,.10)!important;color:rgba(255,255,255,.75)!important;cursor:not-allowed!important}
+  </style>
+  <base target="_top">
+
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">RRR</div>
+        <div style="min-width:0">
+          <h1>RRR Technician Form</h1>
+          <p>Prefilled fields are locked</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div id="status" class="status"></div>
+      <div>
+          <label>Date</label>
+          <input type="date" id="date">
+        </div>
+
+      <div class="row">
+        <div>
+          <label>Mechanic’s Name</label>
+          <input id="mechanicName">
+        </div>
+        <div>
+          <label>DSP / Customer</label>
+          <input id="dspName">
+        </div>
+      </div>
+
+      <label>Vehicle type</label>
+      <select id="vehicleType">
+        <option value="">Select…</option>
+        <option>Diesel</option>
+        <option>Gas</option>
+        <option>Electric</option>
+      </select>
+
+      <label>VIN</label>
+      <input id="vin" minlength="8" maxlength="17"
+        oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')">
+
+      <label>Repair Description</label>
+      <textarea id="repairDescription"></textarea>
+
+      <div class="row">
+  <div>
+    <label>Estimate Time</label>
+<select id="estimateTime" required>
+  <option value="1h">1 hour (minor repair)</option>
+<option value="10h">10 hours (major repair)</option>
+<option value="1d">1 day</option>
+<option value="2d">2 days</option>
+<option value="5d">5 days (long repair)</option>
+
+</select>
+
+  </div>
+  <div>
+    <label>Start Time Date</label>
+    <input type="datetime-local" id="startTimeDate">
+  </div>
+</div>
+
+
+      <label>Tech Concerns</label>
+      <textarea id="techConcerns"></textarea>
+
+      <label>Shop Supply used</label>
+      <textarea id="shopSupply"></textarea>
+
+      <h2 style="margin:14px 0 8px;">Signatures</h2>
+
+      <label>Technician Sign</label>
+      <div class="sigWrap">
+        <canvas id="technicianSign"></canvas>
+        <div class="sigActions">
+          <button class="btn" type="button" onclick="clearSig('technicianSign')">Clear</button>
+          <button class="btn" type="button" onclick="undoSig('technicianSign')">Undo</button>
+        </div>
+      </div>
+
+      <label style="margin-top:14px;">Supervisor Sign</label>
+      <div class="sigWrap">
+        <canvas id="supervisorSign"></canvas>
+        <div class="sigActions">
+          <button class="btn" type="button" onclick="clearSig('supervisorSign')">Clear</button>
+          <button class="btn" type="button" onclick="undoSig('supervisorSign')">Undo</button>
+        </div>
+      </div>
+
+      <button id="submitBtn" class="btn btnPrimary" style="margin-top:14px;" onclick="submitRRR()">
+        Submit RRR
+      </button>
+    </div>
+  </div>
+
+<script>
+  let DRAFT_ID = "";
+
+  function setStatus(msg, ok){
+    const el = document.getElementById("status");
+    el.style.display = "block";
+    el.className = "status " + (ok ? "ok" : "err");
+    el.textContent = msg;
+  }
+
+  function getParamSmart(name){
+    const url = new URL(window.location.href);
+    let v = url.searchParams.get(name);
+    if (v) return v;
+    const h = (url.hash || "").replace(/^#/, "");
+    if (!h) return "";
+    const hs = new URLSearchParams(h);
+    return hs.get(name) || "";
+  }
+
+  function lockPrefilled(){
+  const lockRO = (id)=>{
+    const el = document.getElementById(id);
+    el.readOnly = true;
+    el.classList.add("locked");
+  };
+  const lockDIS = (id)=>{
+    const el = document.getElementById(id);
+    el.disabled = true;
+    el.classList.add("locked");
+  };
+
+  lockRO("mechanicName");
+  lockRO("dspName");
+  lockRO("vin");
+  lockRO("repairDescription");
+  lockDIS("vehicleType");
+
+  // ✅ Date locked (no editable)
+  lockDIS("date");
+}
+
+
+  function fillFromDraft(d){
+    mechanicName.value = d.tech || "";
+    dspName.value = d.dsp || "";
+    vin.value = String(d.vin || "").toUpperCase();
+    repairDescription.value = d.desc || "";
+    DRAFT_ID = d.draftId || "";
+
+    const target = String(d.vehicle || "").trim().toLowerCase();
+    for(const opt of vehicleType.options){
+      if(String(opt.value).trim().toLowerCase() === target){
+        vehicleType.value = opt.value;
+        break;
+      }
+    }
+    lockPrefilled();
+  }
+
+  function loadDraft(){
+  setStatus("Loading draft…", true);
+
+  google.script.url.getLocation(function(loc){
+    const draftId =
+      (loc && loc.parameter && loc.parameter.draft) ? String(loc.parameter.draft).trim() : "";
+
+    if(!draftId){
+      setStatus(
+        "No draft id found in this link.\n\nMake sure you opened the email link (must include ?draft=RRR-xxxx).",
+        false
+      );
+      return;
+    }
+
+    google.script.run
+      .withSuccessHandler((res)=>{
+        if(res && res.ok){
+          fillFromDraft(res);
+          setStatus("Draft loaded ✅ (prefilled + locked)", true);
+        } else {
+          setStatus("Could not load draft.", false);
+        }
+      })
+      .withFailureHandler((e)=>{
+        setStatus("Failed loading draft: " + (e.message || e), false);
+      })
+      .getDraft(draftId);
+  });
+}
+
+// ✅ deja SOLO esta línea una vez (no duplicada)
+window.addEventListener("load", loadDraft);
+
+
+  (function(){
+    const d = new Date();
+    date.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  })();
+
+  // ===== Signatures =====
+  const sigState = {
+    technicianSign: { drawing:false, last:null, strokes:[] },
+    supervisorSign: { drawing:false, last:null, strokes:[] }
+  };
+
+  function setupCanvas(id){
+    const canvas = document.getElementById(id);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+    function resize(){
+      const rect = canvas.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(rect.width * ratio);
+      canvas.height = Math.floor(rect.height * ratio);
+      ctx.setTransform(ratio,0,0,ratio,0,0);
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#000";
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0,0,rect.width,rect.height);
+      redraw(id);
+    }
+
+    function pos(e){
+      const r = canvas.getBoundingClientRect();
+      const t = e.touches ? e.touches[0] : null;
+      return { x:(t?t.clientX:e.clientX)-r.left, y:(t?t.clientY:e.clientY)-r.top };
+    }
+
+    function start(e){
+      sigState[id].drawing = true;
+      sigState[id].last = pos(e);
+      sigState[id].strokes.push([sigState[id].last]);
+      e.preventDefault();
+    }
+
+    function move(e){
+      if(!sigState[id].drawing) return;
+      const p = pos(e), last = sigState[id].last;
+      ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke();
+      sigState[id].last = p;
+      sigState[id].strokes[sigState[id].strokes.length-1].push(p);
+      e.preventDefault();
+    }
+
+    function end(){ sigState[id].drawing=false; sigState[id].last=null; }
+
+    canvas.addEventListener("mousedown", start);
+    canvas.addEventListener("mousemove", move);
+    canvas.addEventListener("mouseup", end);
+    canvas.addEventListener("mouseleave", end);
+    canvas.addEventListener("touchstart", start, {passive:false});
+    canvas.addEventListener("touchmove", move, {passive:false});
+    canvas.addEventListener("touchend", end);
+
+    canvas._ctx = ctx;
+    resize();
+    window.addEventListener("resize", resize);
+  }
+
+  function redraw(id){
+    const c = document.getElementById(id), ctx = c._ctx;
+    const rect = c.getBoundingClientRect();
+    ctx.fillStyle="#fff"; ctx.fillRect(0,0,rect.width,rect.height);
+    for(const stroke of sigState[id].strokes){
+      for(let i=1;i<stroke.length;i++){
+        ctx.beginPath();
+        ctx.moveTo(stroke[i-1].x, stroke[i-1].y);
+        ctx.lineTo(stroke[i].x, stroke[i].y);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function clearSig(id){ sigState[id].strokes=[]; redraw(id); }
+  function undoSig(id){ sigState[id].strokes.pop(); redraw(id); }
+  function isCanvasBlank(id){
+    const c = document.getElementById(id), ctx = c._ctx;
+    const data = ctx.getImageData(0,0,c.width,c.height).data;
+    const step = 16*4;
+    for(let i=0;i<data.length;i+=step){
+      if(!(data[i]===255 && data[i+1]===255 && data[i+2]===255)) return false;
+    }
+    return true;
+  }
+  function canvasToBase64(id){ return document.getElementById(id).toDataURL("image/png"); }
+
+  setupCanvas("technicianSign");
+  setupCanvas("supervisorSign");
+
+  function setLoading(isLoading){
+    const btn = document.getElementById("submitBtn");
+    btn.disabled = isLoading;
+    btn.style.opacity = isLoading ? .75 : 1;
+    btn.textContent = isLoading ? "Submitting…" : "Submit RRR";
+  }
+
+  function submitRRR(){
+    if(isCanvasBlank("technicianSign") || isCanvasBlank("supervisorSign")){
+      setStatus("Both signatures are required.", false);
+      return;
+    }
+
+    const payload = {
+  draftId: DRAFT_ID,
+  mechanicName: mechanicName.value.trim(),
+  dspName: dspName.value.trim(),
+  vehicleType: vehicleType.value,
+  vin: vin.value.trim().toUpperCase(),
+  repairDescription: repairDescription.value.trim(),
+  estimateTime: estimateTime.value.trim(),
+  startTimeDate: startTimeDate.value, // 👈 NUEVO
+  techConcerns: techConcerns.value.trim(),
+  shopSupply: shopSupply.value.trim(),
+  technicianSign: canvasToBase64("technicianSign"),
+  supervisorSign: canvasToBase64("supervisorSign"),
+  date: date.value
+};
+
+
+    setLoading(true);
+    setStatus("Submitting…", true);
+
+    google.script.run
+      .withSuccessHandler((res)=>{
+  if(res && res.ok){
+    setStatus(
+  "✅ Job submitted successfully.\n\nYou can now close this page or notify your supervisor.",
+  true
+);
+
+    lockAllAfterSubmit();
+  } else {
+    setStatus("Error: could not save.", false);
+  }
+  setLoading(false);
+})
+
+      .submitForm(payload);
+  }
+
+  window.addEventListener("load", loadDraft);
+  function lockAllAfterSubmit(){
+  const inputs = document.querySelectorAll("input, textarea, select");
+  inputs.forEach(el=>{
+    el.disabled = true;
+    el.classList.add("locked");
+  });
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Completed ✅";
+}
+
+</script>
+</body>
+</html>

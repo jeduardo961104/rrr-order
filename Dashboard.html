@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <base target="_top">
+  <?!= include('styles'); ?>
+  <base target="_top">
+
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">RRR</div>
+        <div style="min-width:0">
+          <h1>RRR Shop • Dashboard</h1>
+          <p>Choose what you want to do</p>
+        </div>
+      </div>
+      <script>
+           window.BASE_URL = "<?= baseUrl ?>";
+      </script>
+
+      <?!= include('nav'); ?>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2 style="margin:0 0 6px;">Quick actions</h2>
+      <p class="hint">Use tiles below or the top navigation.</p>
+      <div id="status" class="status"></div>
+    </div>
+
+    <div class="tiles">
+  <a class="tile" href="<?= baseUrl ?>?page=dispatcher" target="_top"
+     style="text-decoration:none;color:inherit;">
+    <div class="tileTitle">✉️ Create Draft & Send Email</div>
+    <div class="tileSub">Create a draft and email the technician a prefilled link.</div>
+  </a>
+
+  <a class="tile" href="<?= baseUrl ?>?page=history" target="_top"
+     style="text-decoration:none;color:inherit;">
+    <div class="tileTitle">📋 History & Tracking</div>
+    <div class="tileSub">See jobs and their work status.</div>
+  </a>
+</div>
+
+
+
+    <div class="card" style="margin-top:14px;">
+      <h2 style="margin:0 0 6px;">KPIs (last 7 days)</h2>
+      <p class="hint">Fast snapshot from drafts & orders.</p>
+      <div class="row">
+        <div class="card" style="box-shadow:none">
+          <div class="hint" style="margin:0">Drafts pending</div>
+          <div id="kDraft" style="font-size:22px;font-weight:1000;margin-top:6px">—</div>
+        </div>
+        <div class="card" style="box-shadow:none">
+          <div class="hint" style="margin:0">Ongoing</div>
+          <div id="kOn" style="font-size:22px;font-weight:1000;margin-top:6px">—</div>
+        </div>
+      </div>
+      <div class="card" style="box-shadow:none;margin-top:12px">
+        <div class="hint" style="margin:0">Completed</div>
+        <div id="kDone" style="font-size:22px;font-weight:1000;margin-top:6px">—</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showStatus(msg, ok){
+      const el = document.getElementById("status");
+      el.style.display = "block";
+      el.className = "status " + (ok ? "ok" : "err");
+      el.textContent = msg;
+    }
+
+    function loadKPIs(){
+      showStatus("Loading…", true);
+      google.script.run
+        .withSuccessHandler((data)=>{
+          const drafts = (data && data.drafts) ? data.drafts : [];
+          const orders = (data && data.orders) ? data.orders : [];
+
+          document.getElementById("kDraft").textContent =
+            drafts.filter(x => String(x.draftStatus||"").toUpperCase()==="DRAFT").length;
+
+          document.getElementById("kOn").textContent =
+            orders.filter(x => String(x.workStatus||"").toUpperCase()==="ONGOING").length;
+
+          document.getElementById("kDone").textContent =
+            orders.filter(x => String(x.workStatus||"").toUpperCase()==="COMPLETED").length;
+
+          document.getElementById("status").style.display = "none";
+        })
+        .withFailureHandler((e)=>{
+          showStatus("Could not load KPIs: " + (e && e.message ? e.message : e), false);
+        })
+        .getDashboardData();
+    }
+
+    window.addEventListener("load", loadKPIs);
+  </script>
+</body>
+</html>

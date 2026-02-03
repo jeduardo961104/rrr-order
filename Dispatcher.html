@@ -1,0 +1,274 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <base target="_top">
+  <?!= include('styles'); ?>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">RRR</div>
+        <div style="min-width:0">
+          <h1>Dispatcher</h1>
+          <p>Create draft + send email</p>
+        </div>
+      </div>
+
+      <script>
+        window.BASE_URL = "<?= baseUrl ?>";
+      </script>
+
+      <?!= include('nav'); ?>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2 style="margin:0 0 6px;">Create RRR Draft</h2>
+      <p class="hint">Select a technician from the list (TECHS sheet) or type manually.</p>
+
+      <label>Technician</label>
+      <select id="techSelect">
+        <option value="">Loading techs…</option>
+      </select>
+
+      <div class="row">
+        <div>
+          <label>Technician Name</label>
+          <input id="techName" placeholder="e.g., Mike" />
+        </div>
+        <div>
+          <label>Technician Email</label>
+          <input id="techEmail" placeholder="mike@email.com" />
+        </div>
+      </div>
+
+      <label>DSP / Customer *</label>
+<input
+  id="dspOrCustomer"
+  placeholder="A&A Xpress / Customer name"
+  required
+/>
+
+
+      <label>Vehicle Type</label>
+      <select id="vehicleType">
+        <option value="">Select…</option>
+        <option>Diesel</option>
+        <option>Gas</option>
+        <option>Electric</option>
+      </select>
+
+      <label>VIN (8–17 chars)</label>
+      <input id="vin" maxlength="17" placeholder="VIN..."
+        oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')" />
+
+      <label>Repair Description</label>
+      <textarea id="repairDescription" placeholder="Describe the issue..."></textarea>
+
+      <!-- Buttons -->
+      <div class="row" style="gap:10px; margin-top:14px;">
+        <button id="sendBtn" class="btn btnPrimary" style="flex:1" onclick="sendDraft()">
+          Send Draft to Technician
+        </button>
+
+        <button id="clearBtn" class="btn" style="min-width:160px;" type="button" onclick="clearForm(true)">
+          Clear form
+        </button>
+      </div>
+
+      <div id="status" class="status"></div>
+
+      <div style="margin-top:12px; opacity:.85;">
+  <strong>Order ID:</strong>
+  <span id="createdId">(will be generated after approval)</span>
+</div>
+
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast" aria-live="polite" aria-atomic="true"></div>
+  </div>
+
+<script>
+/* =======================
+   Toast system
+======================= */
+let toastTimer = null;
+
+function showToast(title, message, type = "ok", actions = []) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+
+  if (toastTimer) clearTimeout(toastTimer);
+
+  el.className = `toast ${type}`;
+  el.innerHTML = `
+    <div class="title">${escapeHtml(title)}</div>
+    <div class="msg">${escapeHtml(message)}</div>
+    <div class="actions">
+      ${actions.map(a =>
+        `<button class="tbtn" type="button" data-act="${a.id}">
+          ${escapeHtml(a.label)}
+        </button>`
+      ).join("")}
+      <button class="tbtn" type="button" data-act="dismiss">Dismiss</button>
+    </div>
+  `;
+  el.style.display = "block";
+
+  el.querySelectorAll("[data-act]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-act");
+      if (id === "dismiss") return hideToast();
+      const act = actions.find(x => x.id === id);
+      if (act && typeof act.onClick === "function") act.onClick();
+    });
+  });
+
+  if (type !== "err") {
+    toastTimer = setTimeout(() => hideToast(), 9000);
+  }
+}
+
+function hideToast() {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.style.display = "none";
+  el.innerHTML = "";
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+/* =======================
+   UI helpers
+======================= */
+function setLoading(isLoading){
+  sendBtn.disabled = isLoading;
+  clearBtn.disabled = isLoading;
+  sendBtn.textContent = isLoading ? "Sending…" : "Send Draft to Technician";
+  sendBtn.style.opacity = isLoading ? .7 : 1;
+}
+
+/* =======================
+   Clear form
+======================= */
+function clearForm(showMsg = false) {
+  techSelect.value = "";
+  techName.value = "";
+  techEmail.value = "";
+  dspOrCustomer.value = "";
+  vin.value = "";
+  repairDescription.value = "";
+  vehicleType.value = "";
+
+  techName.readOnly = false;
+  techEmail.readOnly = false;
+
+  createdId.textContent = "—";
+
+  if (showMsg) showToast("Cleared", "Form cleared ✅", "ok");
+}
+
+/* =======================
+   Load TECHS
+======================= */
+function loadTechs(){
+  techSelect.disabled = true;
+  techSelect.innerHTML = `<option value="">Loading techs…</option>`;
+
+  google.script.run
+    .withSuccessHandler(res=>{
+      techSelect.innerHTML = `<option value="">Select a technician…</option>`;
+      (res?.techs || []).forEach(t=>{
+        const opt = document.createElement("option");
+        opt.textContent = `${t.name} — ${t.email}`;
+        opt.dataset.name = t.name;
+        opt.dataset.email = t.email;
+        techSelect.appendChild(opt);
+      });
+      techSelect.disabled = false;
+    })
+    .withFailureHandler(()=>{
+      techSelect.innerHTML = `<option value="">Failed to load TECHS</option>`;
+      techSelect.disabled = false;
+      showToast("Error", "Could not load technicians.", "err");
+    })
+    .getTechs();
+}
+
+techSelect.addEventListener("change", ()=>{
+  const opt = techSelect.selectedOptions[0];
+  if (!opt) return;
+  techName.value = opt.dataset.name || "";
+  techEmail.value = opt.dataset.email || "";
+});
+
+/* =======================
+   Send Draft
+======================= */
+function sendDraft(){
+  const payload = {
+    techName: techName.value.trim(),
+    techEmail: techEmail.value.trim(),
+    dspOrCustomer: dspOrCustomer.value.trim(),
+    vehicleType: vehicleType.value,
+    vin: vin.value.trim(),
+    repairDescription: repairDescription.value.trim()
+  };
+
+  const vinVal = payload.vin.toUpperCase();
+  if (vinVal.length < 8 || vinVal.length > 17){
+    showToast("VIN invalid", "VIN must be 8–17 characters.", "err");
+    return;
+  }
+  if (!payload.techName || !payload.techEmail){
+    showToast("Missing info", "Technician name + email are required.", "err");
+    return;
+  }
+
+  setLoading(true);
+  showToast("Sending…", "Creating draft and emailing technician.", "ok");
+
+  google.script.run
+    .withSuccessHandler(r=>{
+      setLoading(false);
+
+      const link = r?.link || "";
+      const draftId = r?.draftId || "";
+
+      createdId.textContent = draftId || "—";
+      clearForm(false);
+
+      showToast(
+        "Sent ✅",
+        `Draft created.\n\nDraft ID: ${draftId}\nLink: ${link}`,
+        "ok",
+        [
+          { id: "copyLink", label: "Copy link", onClick: ()=>navigator.clipboard?.writeText(link) },
+          { id: "copyDraft", label: "Copy draft ID", onClick: ()=>navigator.clipboard?.writeText(draftId) }
+        ]
+      );
+    })
+    .withFailureHandler(e=>{
+      setLoading(false);
+      showToast("Failed ❌", e?.message || String(e), "err");
+    })
+    .sendDraft(payload);
+}
+
+/* =======================
+   Init
+======================= */
+document.addEventListener("DOMContentLoaded", loadTechs);
+</script>
+</body>
+</html>

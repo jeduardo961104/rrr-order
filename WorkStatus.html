@@ -1,0 +1,204 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <base target="_top">
+  <?!= include('styles'); ?>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <script>
+  window.BASE_URL = "<?!= baseUrl ?>";
+</script>
+
+      <div class="brand">
+        <div class="logo">RRR</div>
+        <div style="min-width:0">
+          <h1>Work Status</h1>
+          <p>Update order status (NEW / ONGOING / COMPLETED)</p>
+        </div>
+      </div>
+      <?!= include('nav'); ?>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+        <div style="min-width:240px;flex:1">
+          <label class="hint">Search (RRR ID / VIN / Mechanic)</label>
+          <input id="q" placeholder="e.g. RRR-20260128-152058-754 or 1YVH..." />
+        </div>
+
+        <div style="min-width:160px">
+          <label class="hint">Filter Status</label>
+          <select id="statusFilter">
+            <option value="">All</option>
+            <option value="NEW">NEW</option>
+            <option value="ONGOING">ONGOING</option>
+            <option value="COMPLETED">COMPLETED</option>
+          </select>
+        </div>
+
+        <button class="btn" id="refreshBtn">Refresh</button>
+      </div>
+
+      <div id="status" class="status" style="display:block;margin-top:10px;">Loading…</div>
+
+      <div style="overflow:auto;margin-top:10px">
+        <table>
+          <thead>
+            <tr>
+              <th>RRR ID</th>
+              <th>Mechanic</th>
+              <th>VIN</th>
+              <th>Status</th>
+              <th>Estimate</th>
+              <th>Created</th>
+              <th>Start</th>
+              <th style="width:180px">Update</th>
+            </tr>
+          </thead>
+          <tbody id="body">
+            <tr><td colspan="8">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const elBody = document.getElementById("body");
+  const elStatus = document.getElementById("status");
+  const elQ = document.getElementById("q");
+  const elFilter = document.getElementById("statusFilter");
+  const elRefresh = document.getElementById("refreshBtn");
+
+  let ALL = [];
+  
+
+  function setStatus(msg, ok){
+    elStatus.className = "status " + (ok ? "ok" : "err");
+    elStatus.textContent = msg;
+  }
+
+  function fmtDate(v){
+    try{
+      const d = new Date(v);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleString();
+    }catch(_){ return ""; }
+  }
+
+  function chip(status){
+    const s = String(status||"NEW").toUpperCase();
+    const cls = s==="COMPLETED" ? "chip chipCOMPLETED"
+              : (s==="ONGOING" ? "chip chipONGOING" : "chip chipNEW");
+    return `<span class="${cls}">${s}</span>`;
+  }
+
+  function rowHtml(o){
+  const current = String(o.workStatus || "NEW").toUpperCase();
+  return `
+    <tr data-id="${o.rrrId}">
+      <td>${o.rrrId || ""}</td>
+      <td>${o.mechanic || ""}</td>
+      <td>${o.vin || ""}</td>
+      <td>${chip(current)}</td>
+      <td>${o.estimate || ""}</td>  <!-- ✅ NUEVO: ETA / Estimate -->
+      <td>${fmtDate(o.timestamp)}</td>
+      <td>${fmtDate(o.startTime)}</td>
+      <td>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select class="wsSelect">
+            <option value="NEW" ${current==="NEW"?"selected":""}>NEW</option>
+            <option value="ONGOING" ${current==="ONGOING"?"selected":""}>ONGOING</option>
+            <option value="COMPLETED" ${current==="COMPLETED"?"selected":""}>COMPLETED</option>
+          </select>
+          <button class="btn wsSave" style="padding:8px 10px">Save</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+
+  function applyFilters(){
+    const q = (elQ.value || "").trim().toLowerCase();
+    const sf = (elFilter.value || "").trim().toUpperCase();
+
+    let list = ALL.slice();
+
+    if (sf) list = list.filter(o => String(o.workStatus||"").toUpperCase() === sf);
+
+    if (q){
+      list = list.filter(o => {
+        return String(o.rrrId||"").toLowerCase().includes(q) ||
+               String(o.vin||"").toLowerCase().includes(q) ||
+               String(o.mechanic||"").toLowerCase().includes(q);
+      });
+    }
+
+    elBody.innerHTML = list.map(rowHtml).join("") || `<tr><td colspan="6">No matching orders.</td></tr>`;
+  }
+
+  function wireRowActions(){
+    elBody.addEventListener("click", (e)=>{
+      const btn = e.target.closest(".wsSave");
+      if (!btn) return;
+
+      const tr = e.target.closest("tr");
+      const rrrId = tr.getAttribute("data-id");
+      const sel = tr.querySelector(".wsSelect");
+      const newStatus = sel.value;
+
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+
+      google.script.run
+        .withSuccessHandler((res)=>{
+          // update local
+          const i = ALL.findIndex(x => x.rrrId === rrrId);
+          if (i >= 0) ALL[i].workStatus = newStatus;
+
+          applyFilters();
+          setStatus(`Saved ✅ ${rrrId} → ${newStatus}`, true);
+        })
+        .withFailureHandler((err)=>{
+          setStatus("Failed: " + (err && err.message ? err.message : err), false);
+          btn.disabled = false;
+          btn.textContent = "Save";
+        })
+        .updateOrderWorkStatus(rrrId, newStatus);
+    });
+  }
+
+  function load(){
+  setStatus("Loading…", true);
+
+  google.script.run
+    .withSuccessHandler((data)=>{
+      console.log("WORKSTATUS RES:", data);
+      ALL = (data && data.orders) ? data.orders : [];
+      applyFilters();
+      setStatus(`Loaded ✅ Orders: ${ALL.length}`, true);
+    })
+    .withFailureHandler((err)=>{
+      console.error("WORKSTATUS ERROR:", err);
+      setStatus("Failed: " + (err && err.message ? err.message : err), false);
+      elBody.innerHTML = `<tr><td colspan="8">Failed to load.</td></tr>`;
+    })
+    .getWorkStatusData(300);
+}
+
+
+
+
+  elQ.addEventListener("input", applyFilters);
+  elFilter.addEventListener("change", applyFilters);
+  elRefresh.addEventListener("click", load);
+
+  wireRowActions();
+  window.addEventListener("load", load);
+</script>
+</body>
+</html>
