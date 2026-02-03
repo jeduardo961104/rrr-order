@@ -43,55 +43,69 @@ function computeDueAt(baseDate, etaCode) {
 // P Start Time Date
 // ==============================
 function getWorkStatusData(limit) {
-  limit = Number(limit || 50);
+  limit = Number(limit || 200);
 
   const ss = SpreadsheetApp.openById(CONFIG.SHEET_ID);
-  const sh = ss.getSheetByName(CONFIG.ANSWERS_SHEET); // debe ser "ORDERS"
+  const sh = ss.getSheetByName(CONFIG.ANSWERS_SHEET); // "ORDERS"
   if (!sh) throw new Error(`Missing sheet: ${CONFIG.ANSWERS_SHEET}`);
 
-  const lastRow = sh.getLastRow();
-  const lastCol = sh.getLastColumn();
+  const lr = sh.getLastRow();
+  const lc = sh.getLastColumn();
+  if (lr < 2) return { ok: true, orders: [], meta: { sheet: sh.getName(), lastRow: lr } };
 
-  // Debug: confirma que estás en la hoja correcta y su estructura
-  console.log("Sheet:", sh.getName(), "lastRow:", lastRow, "lastCol:", lastCol);
+  const values = sh.getRange(1, 1, lr, lc).getValues();
+  const headers = values[0].map(h => String(h || "").trim());
+  const idx = Object.fromEntries(headers.map((h, i) => [h, i]));
 
-  if (lastRow < 2) return { ok: true, orders: [] }; // solo headers o vacío
+  // Helpers
+  const pick = (row, key) => {
+    const i = idx[key];
+    return i === undefined ? "" : row[i];
+  };
+  const toISO = (v) => {
+    if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString();
+    const s = String(v || "").trim();
+    if (!s) return "";
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? s : d.toISOString();
+  };
 
-  // A:P = 16 columnas (como createOrder)
-  const COLS = 16;
+  // Construye órdenes desde tu estructura REAL (form headers)
+  let orders = values.slice(1).map(row => ({
+    // front puede esperar orderId => lo mapeamos al rrrId
+    orderId: String(pick(row, "rrrId") || "").trim(),
+    rrrId: String(pick(row, "rrrId") || "").trim(),
 
-  const startRow = Math.max(2, lastRow - limit + 1);
-  const numRows = lastRow - startRow + 1;
+    workStatus: String(pick(row, "workStatus") || "NEW").trim().toUpperCase(),
 
-  const values = sh.getRange(startRow, 1, numRows, COLS).getValues();
+    mechanic: String(pick(row, "mechanic") || "").trim(),
+    dspOrCustomer: String(pick(row, "DSP/Customer") || "").trim(),
+    vehicleType: String(pick(row, "VehicleType") || "").trim(),
+    vin: String(pick(row, "VIN") || "").trim().toUpperCase(),
 
-  const orders = values
-    .filter(r => r[0]) // requiere OrderId en col A
-    .map(r => ({
-      orderId: r[0],         // A
-      workStatus: r[1],      // B
-      van: r[2],             // C
-      associate: r[3],       // D
-      issueType: r[4],       // E
-      description: r[5],     // F
-      priority: r[6],        // G
-      eta: r[7],             // H
-      mechanic: r[8],        // I
-      createdAt: r[9],       // J
-      startedAt: r[10],      // K
-      completedAt: r[11],    // L
-      pauseReason: r[12],    // M
-      pausedSeconds: r[13],  // N
-      finalNotes: r[14],     // O
-      qcCheck: r[15]         // P
-    }));
+    description: String(pick(row, "RepairDescription") || "").trim(),
+    estimateTime: String(pick(row, "EstimateTime") || "").trim(),
 
-  // Devuelve en orden más reciente primero (opcional)
-  orders.reverse();
+    createdAt: toISO(pick(row, "timestamp")),
+    workUpdatedAt: toISO(pick(row, "WorkUpdatedAt")),
+  }))
+  .filter(o => o.rrrId); // evita filas vacías
 
-  return { ok: true, orders, sheet: sh.getName(), rows: numRows };
+  // Ordenar por timestamp desc
+  orders.sort((a, b) => {
+    const ta = new Date(a.createdAt).getTime();
+    const tb = new Date(b.createdAt).getTime();
+    return (isNaN(tb) ? 0 : tb) - (isNaN(ta) ? 0 : ta);
+  });
+
+  orders = orders.slice(0, Math.max(1, Math.min(limit, 500)));
+
+  return {
+    ok: true,
+    orders,
+    meta: { sheet: sh.getName(), lastRow: lr, lastCol: lc }
+  };
 }
-
 
 
 
